@@ -8,8 +8,8 @@ export async function run(library){
  try{
   library.close(false);Main.overview.showApps();await delay(350);library.goToPage(0,0);await delay(80);
   const group=library.groups.find(g=>g.id==='Utility'),icon=group.apps[0];
-  icon.set_hover(true);assert(group.card.has_style_class_name('app-library-has-hover'),'app hover did not retain folder highlight');
-  icon.set_hover(false);group.cluster.set_hover(true);assert(group.card.has_style_class_name('app-library-has-hover'),'cluster hover did not retain folder highlight');
+  library._pointerActor=icon;library._syncCategoryHover();assert(group.card.has_style_class_name('app-library-has-hover'),'app hover did not retain folder highlight');
+  library._pointerActor=group.cluster;library._syncCategoryHover();assert(group.card.has_style_class_name('app-library-has-hover'),'cluster hover did not retain folder highlight');
   library._clearHover();assert(!group.card.has_style_class_name('app-library-has-hover'),'folder highlight stuck');
   const controls=[library.controls.button,library._previous,library._next].filter(actor=>actor.visible);
   const positions=controls.map(actor=>actor.get_transformed_position());

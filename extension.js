@@ -50,7 +50,7 @@ const LibraryIcon = GObject.registerClass({GTypeName:`AppLibraryIcon${TYPE_TAG}`
         this.previewIndex = -1;
         this._categorySubmenu = null;
         this.connect('notify::hover',()=>{
-            if(!this.library.expanded&&!this.library._isPaging&&!this.library._morphing){this.library._hoverTarget=this.hover?this:null;this.library._syncCategoryHover();this.library._layoutKey="";this.library.queue_relayout();}
+            this.library._syncCategoryHover();
         });
     }
 
@@ -148,6 +148,13 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._tracker.connect('update',(_t,progress)=>{this._adjustment.value=progress;});
         this._tracker.connect('end',(_t,duration,end)=>this.goToPage(end,duration));
         this.connect('captured-event',(_a,event)=>event.type()===Clutter.EventType.KEY_PRESS?this._key(event):Clutter.EVENT_PROPAGATE);
+        global.stage.connectObject('captured-event',(_stage,event)=>{
+            const type=event.type();
+            if([Clutter.EventType.MOTION,Clutter.EventType.ENTER,Clutter.EventType.LEAVE].includes(type))
+                this._pointerHover(...event.get_coords());
+            else if(type===Clutter.EventType.TOUCH_BEGIN)this._clearHover();
+            return Clutter.EVENT_PROPAGATE;
+        },this);
         this.connect('scroll-event',(_a,event)=>{
             if(event.get_scroll_direction()===Clutter.ScrollDirection.SMOOTH)return Clutter.EVENT_PROPAGATE;
             const direction=event.get_scroll_direction();
@@ -307,6 +314,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             });
             group.apps.forEach((a,i)=>{a.previewIndex=i;});
             group.card=new St.Button({style_class:'app-library-card',can_focus:true,accessible_name:group.name});
+            group.card.track_hover=false;
             group.card.set_size(208,208);group.card._libraryDynamicSize=true;
             if(group.id==='Recents'&&!group.apps.length){
                 group.emptyIcon=new St.Icon({icon_name:'document-open-recent-symbolic',icon_size:64,
@@ -330,6 +338,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             group.label.clutter_text.set_line_alignment(Pango.Alignment.CENTER);
             group.label.clutter_text.set({x_align:Clutter.ActorAlign.CENTER,y_align:Clutter.ActorAlign.CENTER});
             group.cluster=new St.Button({style_class:'app-library-cluster',can_focus:true,accessible_name:`Open ${group.name}`});
+            group.cluster.track_hover=false;
             group.cluster.connect('clicked',()=>this.open(group));
             group.cluster.connect('notify::hover',()=>this._syncCategoryHover());
             this._cards.add_child(group.card);this._cards.add_child(group.label);this._iconLayer.add_child(group.cluster);this.groups.push(group);
@@ -500,20 +509,38 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._sources.add(id);
     }
 
+    _pointerHover(x,y){
+        this._pointerActor=null;
+        if(this.mapped&&!this.expanded&&!this._morphing&&!this._isPaging){
+            const picked=global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE,x,y);
+            for(let actor=picked;actor&&actor!==this;actor=actor.get_parent()){
+                if(actor instanceof LibraryIcon&&actor.library===this||
+                    this.groups.some(group=>actor===group.card||actor===group.cluster)){
+                    this._pointerActor=actor;break;
+                }
+            }
+        }
+        this._syncCategoryHover();
+    }
+
     _syncCategoryHover(){
+        const target=!this._clearingHover&&!this.expanded&&!this._morphing&&!this._isPaging?this._pointerActor:null;
         for(const group of this.groups){
-            const hover=!this._clearingHover&&!this.expanded&&!this._morphing&&!this._isPaging&&
-                (group.card.hover||group.cluster.hover||group.apps.some(app=>app.hover));
+            const hover=target&&(target===group.card||target===group.cluster||group.apps.includes(target));
             if(hover)group.card.add_style_class_name('app-library-has-hover');
             else group.card.remove_style_class_name('app-library-has-hover');
+            if(target===group.cluster)group.cluster.add_style_class_name('app-library-pointer-hover');
+            else group.cluster.remove_style_class_name('app-library-pointer-hover');
         }
+        const icon=target instanceof LibraryIcon?target:null;
+        if(this._hoverTarget!==icon){this._hoverTarget=icon;this._layoutKey='';this.queue_relayout();}
     }
 
     _clearHover() {
-        this._clearingHover=true;
+        this._clearingHover=true;this._pointerActor=null;
         this._hoverTarget=null;this._hover.remove_all_transitions();this._hover.opacity=0;
         for(const icon of this.icons.values())icon.set_hover(false);
-        for(const group of this.groups){group.card.set_hover(false);group.cluster.set_hover(false);group.card.remove_style_class_name('app-library-has-hover');}
+        for(const group of this.groups){group.card.set_hover(false);group.cluster.set_hover(false);group.card.remove_style_class_name('app-library-has-hover');group.cluster.remove_style_class_name('app-library-pointer-hover');}
         this._clearingHover=false;
     }
     _startPaging() {
@@ -522,14 +549,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     _finishPaging() {
         this._isPaging=false;this.remove_style_class_name('app-library-paging');
         this._clearHover();
-        const [x,y]=global.get_pointer();
-        let picked=global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE,x,y);
-        for(let actor=picked;actor&&actor!==this;actor=actor.get_parent()){
-            if(actor instanceof LibraryIcon&&actor.library===this&&actor.reactive){
-                actor.set_hover(true);if(!this.expanded)this._hoverTarget=actor;break;
-            }
-            if(this.groups.some(group=>actor===group.card||actor===group.cluster)){actor.set_hover(true);break;}
-        }
+        this._pointerHover(...global.get_pointer().slice(0,2));
         this._layoutKey='';this.queue_relayout();
     }
 
@@ -757,6 +777,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         if(this._nativeView.mapped)this._nativeView._connectDnD();
         this.bms?.destroy();this.categoryDrag?.destroy();this.controls?.destroy();
         Shell.WindowTracker.get_default().disconnectObject(this);Main.overview.disconnectObject(this);Main.layoutManager.disconnectObject(this);
+        global.stage.disconnectObject(this);
         this._disposed=true;
         if(this._refreshId)GLib.source_remove(this._refreshId);
         for(const id of this._sources)GLib.source_remove(id);
