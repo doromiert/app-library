@@ -1,3 +1,4 @@
+import {folderLayout} from '../model.js';
 import {sortButtonLayout} from '../model.js';
 import {categoryFor, pageLayout, previewPosition} from '../model.js';
 const assert = (test, message) => { if (!test) throw new Error(message); };
@@ -32,3 +33,7 @@ const crowded=sortButtonLayout(948,[{x:610,y:8,width:208,height:208}]);
 if(!crowded.compact||crowded.width!==40)throw new Error('Sort label overlaps category');
 const clear=sortButtonLayout(948,[{x:610,y:80,width:208,height:208}]);
 if(clear.compact||clear.width!==112)throw new Error('Sort label not restored with space');
+
+if(folderLayout(1920,1080).capacity!==16)throw new Error('normal folder capacity');
+if(folderLayout(629,720).capacity!==12)throw new Error('narrow folder capacity');
+if(folderLayout(500,500).capacity!==4)throw new Error('small folder capacity');

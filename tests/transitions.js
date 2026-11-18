@@ -10,12 +10,14 @@ export async function run(library){
   library.open(education);await delay(70);
   assert(education.label===titleActor&&Math.hypot(...titleActor.get_transformed_position().map((v,i)=>v-titleStart[i]))>1,'category title does not animate '+JSON.stringify({start:titleStart,now:titleActor.get_transformed_position(),morph:library._morphing,card:education.card.get_transformed_position(),title:education.label===titleActor}));
   for(const [g,[x,y]] of otherPositions){const [nx,ny]=g.card.get_transformed_position();assert(Math.hypot(nx-x,ny-y)<2,'unselected category moved during expansion');assert(g.card.opacity===255&&g.apps.slice(0,3).every(a=>a.opacity===255),'background category disappeared');}
+  assert(education.apps[0].icon.label.opacity>0&&education.apps[0].icon.label.opacity<255,'opening labels did not fade');
   assert(education.apps.slice(16).every(a=>a.opacity===0),'off-page icons visible during expansion');
   education.card.ensure_style();
   assert(education.card.opacity===255&&education.card.get_theme_node().get_background_color().alpha>0,'translucent opening panel');
   assert(education.apps.slice(0,16).every(a=>a.opacity===255),'translucent opening artwork');
   await delay(280);education.cluster.set_hover(true);library.close();await delay(70);
   assert(!education.cluster.visible&&library._hover.opacity===0,'collapse retained miniature highlight');
+  assert(education.apps[0].icon.label.opacity>0&&education.apps[0].icon.label.opacity<255,'closing labels did not fade');
   education.card.ensure_style();assert(education.card.get_theme_node().get_background_color().alpha>0,'translucent closing panel');
   await delay(280);
  }

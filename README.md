@@ -114,3 +114,17 @@ overview; overview exit also performs unconditional presentation cleanup.
 ordering. Folder page dots have 8px more bottom clearance. Sort collapses to
 an icon when its label would leave less than 12px clearance to a category card;
 the collapsed control and main-grid arrows share 24px side padding.
+
+Recents shows only the newest entries that fit one expanded folder page, up to
+16 at normal sizes. It uses the same responsive capacity calculation as folders,
+updates when monitor dimensions change, and keeps the full saved history.
+Opening an app updates Recents automatically with the newest app first, including
+successive openings in the same millisecond.
+
+Collapsed category hover remains active over any child app or miniature cluster.
+The scrim covers background folders and retained grid controls; only the active
+folder and its controls sit above it. App labels fade with the folder morph.
+Folder arrows use the same 24px side inset as Sort. Opening a folder focuses
+the container without selecting an app; the first navigation key selects an
+icon, with arrow keys and Tab moving focus afterward. Dropping onto a category's
+background or label changes membership, not only dropping onto another app.

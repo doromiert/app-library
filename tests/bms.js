@@ -3,7 +3,7 @@ import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 const delay=ms=>new Promise(resolve=>GLib.timeout_add_once(GLib.PRIORITY_DEFAULT,ms,resolve));
 const assert=(v,s)=>{if(!v)throw new Error(s);};
-async function waitFor(check,message){for(let i=0;i<80;i++){if(check())return;await delay(25);}throw new Error(message);}
+async function waitFor(check,message){for(let i=0;i<80;i++){if(check())return;await delay(25);}throw new Error(typeof message==='function'?message():message);}
 export async function run(library){
  const id='blur-my-shell@aunetx';let bms=Main.extensionManager.lookup(id);
  assert(bms?.state===1,'BMS inactive');
@@ -26,7 +26,7 @@ export async function run(library){
   assert(library._hover.get_theme_node().get_border_radius(0)>0,'shared hover is not rounded');
   app.set_hover(false);library.open(group);await delay(60);
   assert(library._morphing&&library.bms.pipeline?.pipeline,'BMS detached during opening');
-  assert(!library._previous.visible&&!library._next.visible,'page arrows visible during opening');
+  assert(!library._folderPrevious.visible&&!library._folderNext.visible,'page arrows visible during opening');
   const siblings=library._iconLayer.get_children();
   assert(siblings.indexOf(group.card)>siblings.indexOf(library.groups.find(g=>g.id==='Development').apps[0]),'expanded panel is below background icons');
   await waitFor(()=>library.bms.pipeline?.pipeline,'App Library did not attach BMS pipeline');
@@ -66,8 +66,8 @@ export async function run(library){
   Main.extensionManager.disableExtension(id);await waitFor(()=>Main.extensionManager.lookup(id).state!==1,'BMS disable failed');await delay(100);
   assert(!library.bms.pipeline,'BMS disable retained renderer');
   Main.extensionManager.enableExtension(id);await waitFor(()=>Main.extensionManager.lookup(id).state===1,'BMS reenable failed');
-  await waitFor(()=>library.bms.pipeline?.pipeline,'BMS reenable failed to restore library blur');
-  library.close();await delay(60);assert(!library._previous.visible&&!library._next.visible,'page arrows visible during closing');assert(library._morphing&&library.bms.pipeline?.pipeline,'BMS detached during closing');await delay(300);
+  await waitFor(()=>library.bms.pipeline?.pipeline,()=> 'BMS reenable failed to restore library blur '+JSON.stringify({disposed:library._disposed,expanded:library.expanded?.id,morph:library._morphGroup?.id,active:Main.extensionManager.lookup(id)?.state,same:Main.extensionManager.lookup('app-library@neg-zero.com')?.stateObj?.library===library,pipelines:library.groups.map(g=>[g.id,Boolean(g.bms?.pipeline?.pipeline)])}));
+  library.close();await delay(60);assert(!library._folderPrevious.visible&&!library._folderNext.visible,'page arrows visible during closing');assert(library._morphing&&library.bms.pipeline?.pipeline,'BMS detached during closing');await delay(300);
   const materialChecks=[];
   for(const choice of [2,3]){
    settings.set_int('style-dialogs',choice);await delay(80);

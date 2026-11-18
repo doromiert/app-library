@@ -34,7 +34,7 @@ export async function run(library){
   pointer.notify_button(GLib.get_monotonic_time(),Clutter.BUTTON_PRIMARY,Clutter.ButtonState.PRESSED);await delay(220);
   for(let i=1;i<=20;i++){pointer.notify_absolute_motion(GLib.get_monotonic_time(),sx+(tx-sx)*i/20,sy+(ty-sy)*i/20);await delay(16);}
   pointer.notify_button(GLib.get_monotonic_time(),Clutter.BUTTON_PRIMARY,Clutter.ButtonState.RELEASED);await delay(250);
-  assert(library.groups.find(g=>g.id==='Utility').apps[0]===source,'physical app drag did not reorder');
+  assert(library.groups.find(g=>g.id==='Utility').apps[0]===source,'physical app drag did not reorder '+JSON.stringify({source:source.app.get_id(),expanded:library.expanded?.id,dragging:library._itemDragging,pending:library._refreshAfterDrag,refresh:library._refreshId,order:settings.get_value('custom-order').deepUnpack().Utility,actual:library.groups.find(g=>g.id==='Utility').apps.slice(0,3).map(a=>a.app.get_id()),point:[sx,sy,tx,ty],pick:global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE,tx,ty)?.constructor.name}));
   library.close(false);await delay(100);
   let last=library.groups.at(-1),first=library.groups[0];assert(library.reorderCategory({_libraryCategory:last},first),'category reorder rejected');await delay(100);
   assert(library.groups[0].id===last.id,'category order did not change');

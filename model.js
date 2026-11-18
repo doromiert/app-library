@@ -40,3 +40,10 @@ export function sortButtonLayout(width, cards, gap=12) {
     const buttonWidth=compact?40:fullWidth;
     return {x:right-buttonWidth,y,width:buttonWidth,height,compact};
 }
+
+export function folderLayout(width, height) {
+    const panelWidth=Math.min(720,width-64),panelHeight=Math.min(720,height-12);
+    const columns=Math.max(1,Math.min(4,Math.floor((panelWidth-96)/144)));
+    const rows=Math.max(1,Math.min(4,Math.floor((panelHeight-128)/144)));
+    return {panelWidth,panelHeight,columns,rows,capacity:columns*rows};
+}

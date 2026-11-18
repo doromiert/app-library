@@ -1,7 +1,7 @@
 {lib, stdenvNoCC, glib}:
 stdenvNoCC.mkDerivation {
   pname = "gnome-shell-extension-app-library";
-  version = "0.1.1";
+  version = "0.1.2";
   src = lib.cleanSource ./.;
   nativeBuildInputs = [glib];
   dontBuild = true;

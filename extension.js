@@ -16,7 +16,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PageIndicators from 'resource:///org/gnome/shell/ui/pageIndicators.js';
 import * as SwipeTracker from 'resource:///org/gnome/shell/ui/swipeTracker.js';
 import * as ParentalControls from 'resource:///org/gnome/shell/misc/parentalControlsManager.js';
-import {CATEGORIES, categoryFor, pageLayout, previewPosition, sortButtonLayout} from './model.js';
+import {CATEGORIES, categoryFor, pageLayout, previewPosition, sortButtonLayout, folderLayout} from './model.js';
 
 const TYPE_TAG = String(GLib.get_monotonic_time());
 const TILE = 128;
@@ -50,7 +50,7 @@ const LibraryIcon = GObject.registerClass({GTypeName:`AppLibraryIcon${TYPE_TAG}`
         this.previewIndex = -1;
         this._categorySubmenu = null;
         this.connect('notify::hover',()=>{
-            if(!this.library.expanded&&!this.library._isPaging&&!this.library._morphing){this.library._hoverTarget=this.hover?this:null;this.library._layoutKey="";this.library.queue_relayout();}
+            if(!this.library.expanded&&!this.library._isPaging&&!this.library._morphing){this.library._hoverTarget=this.hover?this:null;this.library._syncCategoryHover();this.library._layoutKey="";this.library.queue_relayout();}
         });
     }
 
@@ -91,7 +91,7 @@ const LibraryIcon = GObject.registerClass({GTypeName:`AppLibraryIcon${TYPE_TAG}`
 
 export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE_TAG}`}, class Library extends St.Widget {
     _init(settings) {
-        super._init({style_class:'app-library', reactive:true, x_expand:true, y_expand:true,
+        super._init({style_class:'app-library', reactive:true, can_focus:true, x_expand:true, y_expand:true,
             clip_to_allocation:true});
         this._settings=settings;
         this._nativeView=Main.overview._overview.controls.appDisplay;
@@ -120,6 +120,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this.add_child(this._cards);this.add_child(this._hover);
         this._iconLayer=new LibraryLayer();
         this.add_child(this._iconLayer);
+        this.remove_child(this._scrim);this._iconLayer.add_child(this._scrim);
         this._title=new St.Label({style_class:'app-library-dialog-title', opacity:0});
         this.add_child(this._title);
         this._close=new St.Button({style_class:'button app-library-close', can_focus:true,
@@ -131,6 +132,8 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this.add_child(this._indicators);
         this._previous=this._arrow('go-previous-symbolic',-1);
         this._next=this._arrow('go-next-symbolic',1);
+        this._folderPrevious=this._arrow('go-previous-symbolic',-1);
+        this._folderNext=this._arrow('go-next-symbolic',1);
         this._adjustment=new St.Adjustment({actor:this,lower:0,upper:1,value:0,page_size:1,step_increment:1,page_increment:1});
         this._adjustment.connect('notify::value',()=>{if(!this._morphing)this._positionPages();});
         this._tracker=new SwipeTracker.SwipeTracker(this,Clutter.Orientation.HORIZONTAL,Shell.ActionMode.OVERVIEW,
@@ -144,14 +147,14 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         });
         this._tracker.connect('update',(_t,progress)=>{this._adjustment.value=progress;});
         this._tracker.connect('end',(_t,duration,end)=>this.goToPage(end,duration));
-        this.connect('key-press-event',(_a,event)=>this._key(event));
+        this.connect('captured-event',(_a,event)=>event.type()===Clutter.EventType.KEY_PRESS?this._key(event):Clutter.EVENT_PROPAGATE);
         this.connect('scroll-event',(_a,event)=>{
             if(event.get_scroll_direction()===Clutter.ScrollDirection.SMOOTH)return Clutter.EVENT_PROPAGATE;
             const direction=event.get_scroll_direction();
             this.goToPage(this._adjustment.value+([Clutter.ScrollDirection.UP,Clutter.ScrollDirection.LEFT].includes(direction)?-1:1));
             return Clutter.EVENT_STOP;
         });
-        this._settings.connectObject('changed::category-overrides',()=>this.refresh(),this);
+        this._settings.connectObject('changed::category-overrides',()=>this.queueRefresh(),this);
         Shell.AppSystem.get_default().connectObject('installed-changed',()=>this.queueRefresh(),this);
         ParentalControls.getDefault().connectObject('app-filter-changed',()=>this.queueRefresh(),this);
         this.connect('destroy',()=>this._dispose());
@@ -166,13 +169,17 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             destroy:()=>{for(const group of this.groups)group.bms?.destroy();},
         };
         this.bms.refresh();
-        this.controls=new LibraryControls(this,this._settings);this.add_child(this.controls.button);
+        this.controls=new LibraryControls(this,this._settings);this._iconLayer.add_child(this.controls.button);
+        for(const arrow of [this._previous,this._next]){this.remove_child(arrow);this._iconLayer.add_child(arrow);}
         for(const key of ['sort-mode','custom-categories','custom-order','category-order','show-recents','pin-recents'])
             this._settings.connectObject('changed::'+key,()=>this.queueRefresh(),this);
         Shell.WindowTracker.get_default().connectObject('notify::focus-app',tracker=>{
             const app=tracker.focus_app;if(app)this.recordUse(app.get_id());
         },this);
         Main.overview.connectObject('showing',()=>this.queueRefresh(),this);
+        Main.overview.connectObject('item-drag-begin',()=>{this._itemDragging=true;},
+            'item-drag-end',()=>{this._itemDragging=false;if(this._refreshAfterDrag){this._refreshAfterDrag=false;this.queueRefresh();}},this);
+        Main.layoutManager.connectObject('monitors-changed',()=>this.queueRefresh(),this);
         this.queueRefresh();
     }
 
@@ -186,22 +193,37 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     queueRefresh() {
+        if(this._itemDragging){this._refreshAfterDrag=true;return;}
         if(this._refreshId || this._disposed)return;
         this._refreshId=GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE,()=>{
-            this._refreshId=0;this.refresh();return GLib.SOURCE_REMOVE;
+            this._refreshId=0;if(this._itemDragging)this._refreshAfterDrag=true;else this.refresh();return GLib.SOURCE_REMOVE;
         });
     }
 
-    handleDragOver(source){return source?._libraryCategory&&this.categoryDrag.state?DND.DragMotionResult.MOVE_DROP:DND.DragMotionResult.NO_DROP;}
-    acceptDrop(source){return source?._libraryCategory?this.categoryDrag.finish(true):false;}
+    _dropGroupAt(x,y){
+        if(this.expanded||!Number.isFinite(x)||!Number.isFinite(y))return null;
+        return this.groups.find(group=>group.page===this.page&&x>=group.card.translation_x&&
+            x<group.card.translation_x+group.card.width&&y>=group.card.translation_y&&
+            y<group.card.translation_y+246)??null;
+    }
+    handleDragOver(source,_actor,x,y){
+        if(source instanceof LibraryIcon){const group=this._dropGroupAt(x,y);return group&&this.canDropApp(source,group)?DND.DragMotionResult.MOVE_DROP:DND.DragMotionResult.CONTINUE;}
+        return source?._libraryCategory&&this.categoryDrag.state?DND.DragMotionResult.MOVE_DROP:DND.DragMotionResult.NO_DROP;
+    }
+    acceptDrop(source,_actor,x,y){
+        if(source instanceof LibraryIcon){const group=this._dropGroupAt(x,y);return group?this.dropApp(source,group):false;}
+        return source?._libraryCategory?this.categoryDrag.finish(true):false;
+    }
+
     categories(){
         const custom=this._settings.get_value('custom-categories').deepUnpack();
         return [...CATEGORIES,...Object.entries(custom).map(([id,name])=>({id,name}))];
     }
     recordUse(id){
-        const used=this._settings.get_value('recently-used').deepUnpack();used[id]=Date.now();
+        const used=this._settings.get_value('recently-used').deepUnpack();
+        used[id]=Object.values(used).reduce((latest,value)=>Math.max(latest,value+1),Date.now());
         this._settings.set_value('recently-used',new GLib.Variant('a{sx}',used));
-        if(!Main.overview.visible)this.queueRefresh();
+        if(!Main.overview.visible||this.expanded?.id==='Recents')this.queueRefresh();
     }
     canDropApp(source,group,target=null){
         return source instanceof LibraryIcon&&source.library===this&&group.id!=='Recents'&&
@@ -246,7 +268,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const observed=Date.now();
         for(const app of apps)if(!seen[app.get_id()]){seen[app.get_id()]=observed;changedSeen=true;}
         if(changedSeen)this._settings.set_value('first-seen',new GLib.Variant('a{sx}',seen));
-        const recentApps=this._settings.get_boolean('show-recents')?apps.filter(a=>used[a.get_id()]).sort((a,b)=>used[b.get_id()]-used[a.get_id()]).slice(0,16):[];
+        const monitor=Main.layoutManager.primaryMonitor;
+        const recentLimit=folderLayout(monitor.width,monitor.height).capacity;
+        const recentApps=this._settings.get_boolean('show-recents')?apps.filter(a=>used[a.get_id()]).sort((a,b)=>used[b.get_id()]-used[a.get_id()]).slice(0,recentLimit):[];
         const present=new Set([...apps.map(a=>a.get_id()),...recentApps.map(a=>'recents:'+a.get_id())]);
         for(const [id,icon] of this.icons){
             if(!present.has(id)){icon.destroy();this.icons.delete(id);}
@@ -291,6 +315,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
                 group.card.accessible_name='Recents — no recently opened apps';
             }
             group.card.connect('clicked',()=>this.open(group));
+            group.card.connect('notify::hover',()=>this._syncCategoryHover());
             group.card._delegate={_libraryCategory:group,
                 getDragActor:()=>this.categoryDrag.preview(group),
                 getDragActorSource:()=>group.card,
@@ -306,6 +331,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             group.label.clutter_text.set({x_align:Clutter.ActorAlign.CENTER,y_align:Clutter.ActorAlign.CENTER});
             group.cluster=new St.Button({style_class:'app-library-cluster',can_focus:true,accessible_name:`Open ${group.name}`});
             group.cluster.connect('clicked',()=>this.open(group));
+            group.cluster.connect('notify::hover',()=>this._syncCategoryHover());
             this._cards.add_child(group.card);this._cards.add_child(group.label);this._iconLayer.add_child(group.cluster);this.groups.push(group);
         }
         const categoryOrder=this._settings.get_strv('category-order');
@@ -341,7 +367,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this.expanded=group;this.folderPage=0;
         this._adjustment.remove_transition('value');this._adjustment.value=0;
         this._layoutKey='';this._animate=true;this.queue_relayout();
-        this._finishMorph(()=>group.apps[0]?.grab_key_focus());
+        this._finishMorph(()=>this.grab_key_focus());
     }
 
     close(animate=true) {
@@ -372,14 +398,14 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         if(this._lifted)this._lift(false);
         this._iconLayer.remove_clip();this._scrim.opacity=0;this._scrim.reactive=false;
         this._close.opacity=0;this._close.reactive=false;this._close.can_focus=false;
-        this._previous.hide();this._next.hide();this._clearHover();
+        this._folderPrevious.hide();this._folderNext.hide();this._clearHover();
         this._adjustment.upper=this._pageCount;this._adjustment.value=this.page;
         this._layoutKey='';this.queue_relayout();
     }
 
     _beginMorph(group) {
         this._morphGroup=group;this._morphFolderPage=this.folderPage;
-        this._previous.hide();this._next.hide();
+        this._folderPrevious.hide();this._folderNext.hide();
         this._raiseGroup(group);
         this._morphing=true;this.bms?.refresh();this.add_style_class_name("app-library-morphing");
         group.card.add_style_class_name("app-library-morph-card");
@@ -388,6 +414,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._adjustment.remove_transition('value');this._hover.opacity=0;
     }
     _raiseGroup(group){
+        this._iconLayer.set_child_above_sibling(this._scrim,null);
         // Keep the actual card above background apps, without moving any app actor.
         for(const actor of [group.card,group.label]){
             if(actor.get_parent()!==this._iconLayer){actor.get_parent().remove_child(actor);this._iconLayer.add_child(actor);}
@@ -437,10 +464,13 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     _lift(open) {
-        const [oldX,oldY]=this.get_transformed_position();
+        let [oldX,oldY]=this.get_transformed_position();
+        const monitor=Main.layoutManager.primaryMonitor;
+        if(!Number.isFinite(oldX)||!Number.isFinite(oldY))
+            [oldX,oldY]=this._lifted?[monitor.x,monitor.y]:(this._homeOrigin??[monitor.x,monitor.y]);
         if(open){
             if(this._lifted)return;
-            const monitor=Main.layoutManager.primaryMonitor;
+            this._homeOrigin=[oldX,oldY];
             this._homeGeometry={x:oldX-monitor.x,y:oldY-monitor.y,width:this._homeAllocation?.width??this._rootWidth,height:this._homeAllocation?.height??this._rootHeight};
             this._lifted=true;
             this._homeParent=this.get_parent();
@@ -453,9 +483,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         }
         const [newX,newY]=open
             ? [Main.layoutManager.primaryMonitor.x,Main.layoutManager.primaryMonitor.y]
-            : this._homeParent.get_transformed_position();
+            : this._homeOrigin;
         for(const actor of [...this._cards.get_children(),...this._iconLayer.get_children()]){
-            if(actor._zenosBmsSurface)continue;
+            if(actor._zenosBmsSurface||actor===this._scrim)continue;
             actor.remove_all_transitions();actor.translation_x+=oldX-newX;actor.translation_y+=oldY-newY;
         }
     }
@@ -465,10 +495,19 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._sources.add(id);
     }
 
+    _syncCategoryHover(){
+        for(const group of this.groups){
+            const hover=!this.expanded&&!this._morphing&&!this._isPaging&&
+                (group.card.hover||group.cluster.hover||group.apps.some(app=>app.hover));
+            if(hover)group.card.add_style_class_name('app-library-has-hover');
+            else group.card.remove_style_class_name('app-library-has-hover');
+        }
+    }
+
     _clearHover() {
         this._hoverTarget=null;this._hover.remove_all_transitions();this._hover.opacity=0;
         for(const icon of this.icons.values())icon.set_hover(false);
-        for(const group of this.groups){group.card.set_hover(false);group.cluster.set_hover(false);}
+        for(const group of this.groups){group.card.set_hover(false);group.cluster.set_hover(false);group.card.remove_style_class_name('app-library-has-hover');}
     }
     _startPaging() {
         this._isPaging=true;this._clearHover();this.add_style_class_name('app-library-paging');
@@ -509,6 +548,18 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
 
     _key(event) {
         const key=event.get_key_symbol();
+        if(this.expanded){
+            const apps=this.expanded.apps.slice(this.folderPage*this._folderCapacity,(this.folderPage+1)*this._folderCapacity);
+            const focus=global.stage.get_key_focus(),index=apps.findIndex(app=>app===focus||Boolean(focus&&app.contains(focus)));
+            const directions=new Map([[Clutter.KEY_Left,-1],[Clutter.KEY_Right,1],[Clutter.KEY_Up,-this._folderColumns],[Clutter.KEY_Down,this._folderColumns]]);
+            if(directions.has(key)&&apps.length){apps[Math.max(0,Math.min(apps.length-1,index<0?0:index+directions.get(key)))].grab_key_focus();return Clutter.EVENT_STOP;}
+            if([Clutter.KEY_Tab,Clutter.KEY_ISO_Left_Tab].includes(key)){
+                const targets=[...apps,this._close],current=targets.indexOf(focus);
+                const backward=key===Clutter.KEY_ISO_Left_Tab||Boolean(event.get_state()&Clutter.ModifierType.SHIFT_MASK);
+                targets[(current+(backward?-1:1)+targets.length)%targets.length].grab_key_focus();return Clutter.EVENT_STOP;
+            }
+            if(index<0&&apps.length&&[Clutter.KEY_Return,Clutter.KEY_KP_Enter,Clutter.KEY_space].includes(key)){apps[0].grab_key_focus();return Clutter.EVENT_STOP;}
+        }
         if(key===Clutter.KEY_Escape && this.expanded){this.close();return Clutter.EVENT_STOP;}
         if([Clutter.KEY_Page_Down,Clutter.KEY_Page_Up].includes(key)){
             this.goToPage(this._adjustment.value+(key===Clutter.KEY_Page_Down?1:-1));return Clutter.EVENT_STOP;
@@ -535,17 +586,16 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             for(const child of this.get_children())reallocate(child);
             this.bms?.allocate();return;
         }
-        this.controls.button.visible=!this.expanded&&!this._morphing;
+        this.controls.button.visible=true;
+        this.controls.button.reactive=!this.expanded&&!this._morphing;this.controls.button.can_focus=this.controls.button.reactive;
         this._rootWidth=home.width;this._rootHeight=h;
         allocate(this._cards,0,0,w,h);allocate(this._iconLayer,0,0,w,h);allocate(this._scrim,0,0,w,h);
         const layout=pageLayout(home.width,home.height);
         this._pageCount=Math.max(1,Math.ceil(this.groups.length/layout.capacity));
-        const panelWidth=Math.min(720,w-64),panelHeight=Math.min(720,h-12);
+        const {panelWidth,panelHeight,columns,rows,capacity}=folderLayout(w,h);
         const panel={x:(w-panelWidth)/2,y:(h-panelHeight)/2,width:panelWidth,height:panelHeight};
         this._panel=panel;
-        const columns=Math.max(1,Math.min(4,Math.floor((panelWidth-96)/144)));
-        const rows=Math.max(1,Math.min(4,Math.floor((panelHeight-128)/144)));
-        this._folderCapacity=columns*rows;
+        this._folderCapacity=capacity;this._folderColumns=columns;
         this._folderPages=this.expanded?Math.max(1,Math.ceil(this.expanded.apps.length/this._folderCapacity)):1;
         this.page=Math.min(this.page,this._pageCount-1);this.folderPage=Math.min(this.folderPage,this._folderPages-1);
         const count=this.expanded?this._folderPages:this._pageCount;
@@ -554,7 +604,10 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const indicatorY=this.expanded?panel.y+panelHeight-48:h-32;
         const [,indicatorWidth]=this._indicators.get_preferred_width(-1);
         allocate(this._indicators,(w-indicatorWidth)/2,indicatorY,indicatorWidth,32);
-        allocate(this._previous,this.expanded?panel.x+8:24,h/2-20,40,40);allocate(this._next,this.expanded?panel.x+panelWidth-48:w-64,h/2-20,40,40);
+        allocate(this._previous,home.x+24,home.y+home.height/2-20,40,40);
+        allocate(this._next,home.x+home.width-64,home.y+home.height/2-20,40,40);
+        allocate(this._folderPrevious,panel.x+24,h/2-20,40,40);
+        allocate(this._folderNext,panel.x+panelWidth-64,h/2-20,40,40);
         allocate(this._close,panel.x+panelWidth-52,panel.y+16,36,36);
         allocate(this._title,panel.x+64,panel.y+22,panelWidth-128,36);
         this._title.text='';
@@ -569,9 +622,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const y0=home.y+Math.round(Math.max(8,(home.height-40-layout.rows*256)/2));
         const visibleCards=this.groups.slice(this.page*layout.capacity,(this.page+1)*layout.capacity).map((_g,i)=>({
             x:x0+(i%layout.columns)*240,y:y0+Math.floor(i/layout.columns)*256,width:208,height:208}));
-        const sort=sortButtonLayout(w,visibleCards);
+        const sort=sortButtonLayout(home.width,visibleCards.map(card=>({...card,x:card.x-home.x,y:card.y-home.y})));
         this.controls.setCompact(sort.compact);
-        allocate(this.controls.button,sort.x,sort.y,sort.width,sort.height);
+        allocate(this.controls.button,home.x+sort.x,home.y+sort.y,sort.width,sort.height);
         this.groups.forEach((group,index)=>{
             if(group._dragging){group.page=Math.floor(index/layout.capacity);return;}
             if(this._morphing&&group!==this._morphGroup){
@@ -636,7 +689,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
                     if(!this._morphing)icon.opacity=icon._libraryVisible?255:0;
                     const artworkScale=!selected&&preview.size===80?0.9:1;
                     ease(icon.icon.icon,{scale_x:artworkScale,scale_y:artworkScale},this._animate);
-                    icon.icon.label.opacity=!this._morphing&&selected?255:0;
+                    ease(icon.icon.label,{opacity:selected?255:0},this._animate);
                     ease(icon._dot,{opacity:selected?255:0},this._animate);
                 }
             });
@@ -661,8 +714,13 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const progress=this._adjustment.value;
         this._indicators.setCurrentPosition(progress);
         const count=this.expanded?this._folderPages:this._pageCount;
-        this._previous.visible=count>1 && progress>0.01;
-        this._next.visible=count>1 && progress<count-1.01;
+        const gridProgress=this.expanded?this.page:progress;
+        this._previous.visible=this._pageCount>1&&gridProgress>0.01;
+        this._next.visible=this._pageCount>1&&gridProgress<this._pageCount-1.01;
+        this._previous.reactive=this._next.reactive=!this.expanded;
+        this._previous.can_focus=this._next.can_focus=!this.expanded;
+        this._folderPrevious.visible=Boolean(this.expanded)&&count>1&&progress>0.01;
+        this._folderNext.visible=Boolean(this.expanded)&&count>1&&progress<count-1.01;
         for(const group of this.groups){
             if(group._dragging)continue;
             if(!this.expanded){
@@ -691,7 +749,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._nativeView._connectDnD=this._nativeConnectDnD;
         if(this._nativeView.mapped)this._nativeView._connectDnD();
         this.bms?.destroy();this.categoryDrag?.destroy();this.controls?.destroy();
-        Shell.WindowTracker.get_default().disconnectObject(this);Main.overview.disconnectObject(this);
+        Shell.WindowTracker.get_default().disconnectObject(this);Main.overview.disconnectObject(this);Main.layoutManager.disconnectObject(this);
         this._disposed=true;
         if(this._refreshId)GLib.source_remove(this._refreshId);
         for(const id of this._sources)GLib.source_remove(id);

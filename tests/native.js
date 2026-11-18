@@ -21,14 +21,14 @@ export async function run(library) {
         assert(group.apps.every(a=>a.has_clip),'foreground apps lack viewport clipping');
         const inactive=group.apps[16];if(inactive){inactive.ensure_style();assert(inactive.get_theme_node().get_background_color().alpha===0,'inactive tile has dark fill');}
         assert(retained(),'expansion replaced an app/icon/parent');
-        assert(library._next.width===library._next.height,'next arrow not circular');
+        assert(library._folderNext.width===library._folderNext.height,'next arrow not circular');
         assert(library.width===Main.layoutManager.primaryMonitor.width&&library.height===Main.layoutManager.primaryMonitor.height,'full viewport scrim');
         const pageIcon=group.apps[0],startX=pageIcon.translation_x;
         library.goToPage(1);await delay(70);const midX=pageIcon.translation_x;await delay(230);
         assert(midX<startX&&midX>pageIcon.translation_x,'folder paging snapped instead of tweening');
         assert(Math.abs(startX-pageIcon.translation_x-library._panel.width)<2,'folder page stride '+JSON.stringify({startX,endX:pageIcon.translation_x,panel:library._panel.width,adjustment:library._adjustment.value,morph:library._morphing}));
         assert(Math.abs(library._adjustment.value-1)<0.01,'folder pagination');
-        assert(!library._next.visible,'stray next arrow at last page');
+        assert(!library._folderNext.visible,'stray next arrow at last page');
         assert(retained(),'pagination replaced actor');
         library.close();await delay(320);assert(retained(),'collapse replaced actor');
         const app=group.apps[0];app.popupMenu();

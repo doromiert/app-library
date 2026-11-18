@@ -22,7 +22,7 @@ export default class Setup extends Extension {
             try {
                 const record=Main.extensionManager.lookup('app-library@neg-zero.com');
                 if(!this.record && record?.stateObj?.library && !Main.layoutManager._startingUp){
-                    this.record=record;record.stateObj.getSettings().set_string('sort-mode','custom');Main.overview.showApps();
+                    this.record=record;record.stateObj.getSettings().set_string('sort-mode','custom');Main.overview.showApps();Main.overview.dash.showAppsButton.checked=true;
                     this.firstPaint=GLib.get_monotonic_time();this.captureLater(700);
                 }
                 const requestFile=Gio.File.new_for_path(this.root+'/request.json');

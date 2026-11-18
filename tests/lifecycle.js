@@ -25,6 +25,10 @@ export async function run(library){
   assert(graphics?.id==='Graphics'&&graphics.card.get_parent()===library._iconLayer,'refresh lost foreground panel');
   const children=library._iconLayer.get_children(),cardIndex=children.indexOf(graphics.card);
   assert(graphics.apps.every(a=>children.indexOf(a)>cardIndex),'foreground app fell below card');
+  const scrimIndex=children.indexOf(library._scrim);
+  assert(scrimIndex>=0&&scrimIndex<cardIndex,'scrim is above active panel');
+  assert(library.groups.filter(g=>g!==graphics).flatMap(g=>g.apps).every(a=>children.indexOf(a)<scrimIndex),'background icon above scrim');
+  assert(library._scrim.translation_x===0&&library._scrim.translation_y===0,'scrim moved with folder');
   Main.overview.hide();await delay(350);assert(unlifted()&&!library.mapped,'refreshed category orphaned on hide');
   Main.overview.showApps();await delay(350);
   graphics=library.groups.find(g=>g.id==='Graphics');library.open(graphics);await delay(30);
@@ -34,7 +38,7 @@ export async function run(library){
   // Recovery must also work if selection has already disappeared.
   graphics=library.groups.find(g=>g.id==='Graphics');library.open(graphics);await delay(30);
   library.expanded=null;library.close(false);await delay(350);assert(unlifted(),'null selection prevented cleanup');
-  return {lastAppMove:true,foregroundAfterRefresh:true,overviewHide:true,interruptedMorph:true,nullSelectionRecovery:true};
+  return {lastAppMove:true,foregroundAfterRefresh:true,overviewHide:true,backgroundBelowScrim:true,interruptedMorph:true,nullSelectionRecovery:true};
  }finally{
   library.close(false);library._settings.set_value('category-overrides',saved);await delay(100);
   Main.overview.showApps();

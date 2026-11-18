@@ -6,6 +6,6 @@
     "50"
   ],
   "settings-schema": "org.gnome.shell.extensions.app-library",
-  "version": 2,
+  "version": 3,
   "url": "https://github.com/doromiert/app-library"
 }
