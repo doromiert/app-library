@@ -150,6 +150,11 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this.connect('captured-event',(_a,event)=>event.type()===Clutter.EventType.KEY_PRESS?this._key(event):Clutter.EVENT_PROPAGATE);
         global.stage.connectObject('captured-event',(_stage,event)=>{
             const type=event.type();
+            // Search/the overview can own focus outside our actor hierarchy.
+            // Consume Escape at the stage before their handlers leave Show Apps.
+            if(type===Clutter.EventType.KEY_PRESS&&event.get_key_symbol()===Clutter.KEY_Escape&&this.expanded){
+                this.close();return Clutter.EVENT_STOP;
+            }
             if([Clutter.EventType.MOTION,Clutter.EventType.ENTER,Clutter.EventType.LEAVE].includes(type))
                 this._pointerHover(...event.get_coords());
             else if(type===Clutter.EventType.TOUCH_BEGIN)this._clearHover();
@@ -384,7 +389,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         if(!this.expanded){if(this._lifted)this._resetPresentation();return;}
         this._beginMorph(this.expanded);
         this._iconLayer.remove_clip();
-        this.expanded=null;
+        this.expanded=null;global.stage.set_key_focus(null);
         this._adjustment.remove_transition('value');this._adjustment.upper=this._pageCount;this._adjustment.value=this.page;
         this._layoutKey='';this._animate=true;this.queue_relayout();
         this._finishMorph(()=>{this._lift(false);global.stage.set_key_focus(null);});
