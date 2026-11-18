@@ -1,3 +1,4 @@
+import {sortButtonLayout} from '../model.js';
 import {categoryFor, pageLayout, previewPosition} from '../model.js';
 const assert = (test, message) => { if (!test) throw new Error(message); };
 assert(categoryFor(null) === 'Other', 'uncategorized apps');
@@ -26,3 +27,8 @@ assert(208-third.y-third.size===16,'bottom padding');
 const miniFirst=previewPosition(3,8), miniLast=previewPosition(6,8);
 assert(miniFirst.x===116&&miniFirst.y===116&&miniLast.x+32===188&&miniLast.y+32===188,'mini cluster remains centered with8px inset');
 assert(previewPosition(4,8).x-miniFirst.x-miniFirst.size===8,'mini icon gap');
+
+const crowded=sortButtonLayout(948,[{x:610,y:8,width:208,height:208}]);
+if(!crowded.compact||crowded.width!==40)throw new Error('Sort label overlaps category');
+const clear=sortButtonLayout(948,[{x:610,y:80,width:208,height:208}]);
+if(clear.compact||clear.width!==112)throw new Error('Sort label not restored with space');

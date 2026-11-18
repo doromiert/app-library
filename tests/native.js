@@ -26,7 +26,7 @@ export async function run(library) {
         const pageIcon=group.apps[0],startX=pageIcon.translation_x;
         library.goToPage(1);await delay(70);const midX=pageIcon.translation_x;await delay(230);
         assert(midX<startX&&midX>pageIcon.translation_x,'folder paging snapped instead of tweening');
-        assert(Math.abs(startX-pageIcon.translation_x-library._panel.width)<2,'folder page stride');
+        assert(Math.abs(startX-pageIcon.translation_x-library._panel.width)<2,'folder page stride '+JSON.stringify({startX,endX:pageIcon.translation_x,panel:library._panel.width,adjustment:library._adjustment.value,morph:library._morphing}));
         assert(Math.abs(library._adjustment.value-1)<0.01,'folder pagination');
         assert(!library._next.visible,'stray next arrow at last page');
         assert(retained(),'pagination replaced actor');

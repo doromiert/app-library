@@ -32,3 +32,11 @@ export function previewPosition(index, count) {
     return {x: 116 + (mini % 2) * 40, y: 116 + Math.floor(mini / 2) * 40,
         size: 32, visible: index < 7};
 }
+
+export function sortButtonLayout(width, cards, gap=12) {
+    const y=8,height=40,fullWidth=112,right=width-24,left=right-fullWidth;
+    const compact=cards.some(card=>left<card.x+card.width+gap&&right>card.x-gap&&
+        y<card.y+card.height+gap&&y+height>card.y-gap);
+    const buttonWidth=compact?40:fullWidth;
+    return {x:right-buttonWidth,y,width:buttonWidth,height,compact};
+}

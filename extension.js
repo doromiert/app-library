@@ -16,7 +16,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PageIndicators from 'resource:///org/gnome/shell/ui/pageIndicators.js';
 import * as SwipeTracker from 'resource:///org/gnome/shell/ui/swipeTracker.js';
 import * as ParentalControls from 'resource:///org/gnome/shell/misc/parentalControlsManager.js';
-import {CATEGORIES, categoryFor, pageLayout, previewPosition} from './model.js';
+import {CATEGORIES, categoryFor, pageLayout, previewPosition, sortButtonLayout} from './model.js';
 
 const TYPE_TAG = String(GLib.get_monotonic_time());
 const TILE = 128;
@@ -230,6 +230,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     refresh() {
+        const expandedId=this.expanded?.id;
+        this.categoryDrag?.finish(false);
+        this._resetPresentation();
         const overrides=this._settings.get_value('category-overrides').deepUnpack();
         const parentFilter=ParentalControls.getDefault();
         const stacks=Main.extensionManager.lookup('dash-stacks@neg-zero.com')?.stateObj?._appFolderPins?.contents?.hidden;
@@ -313,8 +316,12 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             if(mode==='used'||mode==='added')return score(b,mode==='used'?used:seen)-score(a,mode==='used'?used:seen)||a.name.localeCompare(b.name);
             return a.id==='Other'?1:b.id==='Other'?-1:a.name.localeCompare(b.name);
         });
-        const oldId=this.expanded?.id;
-        this.expanded=this.groups.find(g=>g.id===oldId)??null;
+        this.expanded=this.groups.find(g=>g.id===expandedId)??null;
+        if(this.expanded){
+            this._morphGroup=this.expanded;
+            this._raiseGroup(this.expanded);
+            this._lift(true);
+        }
         this.bms?.refresh();
         this._layoutKey='';this.queue_relayout();
     }
@@ -327,7 +334,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     open(group) {
-        if(this.expanded===group)return;
+        if(this._disposed||!this.groups.includes(group)||this.expanded===group)return;
         this._beginMorph(group);
         this._iconLayer.remove_clip();
         this._lift(true);
@@ -338,19 +345,49 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     close(animate=true) {
-        if(!this.expanded)return;
+        if(!animate){this._resetPresentation();return;}
+        if(!this.expanded){if(this._lifted)this._resetPresentation();return;}
         this._beginMorph(this.expanded);
         this._iconLayer.remove_clip();
-        const group=this.expanded;this.expanded=null;
+        this.expanded=null;
         this._adjustment.remove_transition('value');this._adjustment.upper=this._pageCount;this._adjustment.value=this.page;
-        this._layoutKey='';this._animate=animate;this.queue_relayout();
-        if(animate)this._finishMorph(()=>{this._lift(false);global.stage.set_key_focus(null);});
-        else{this._morphing=false;this.remove_style_class_name("app-library-morphing");group.card.remove_style_class_name("app-library-morph-card");this._lift(false);this._restoreCardLayer();this._setPageClip();this.bms?.refresh();}
+        this._layoutKey='';this._animate=true;this.queue_relayout();
+        this._finishMorph(()=>{this._lift(false);global.stage.set_key_focus(null);});
+    }
+
+    _resetPresentation(){
+        if(this._disposed)return;
+        // Settings can remove the expanded category or interrupt its morph.
+        // Always return the surface to the overview, even if expanded is null.
+        this._morphSerial=(this._morphSerial??0)+1;
+        for(const id of this._sources)GLib.source_remove(id);
+        this._sources.clear();this._adjustment.remove_transition('value');
+        const stop=actor=>{actor.remove_all_transitions();for(const child of actor.get_children())stop(child);};
+        for(const child of this.get_children())stop(child);
+        this._morphing=false;this._isPaging=false;this._animate=false;
+        this.remove_style_class_name('app-library-morphing');this.remove_style_class_name('app-library-paging');
+        if(this.groups.includes(this._morphGroup))this._morphGroup.card.remove_style_class_name('app-library-morph-card');
+        this._restoreCardLayer();
+        this.expanded=null;this._morphGroup=null;
+        if(this._lifted)this._lift(false);
+        this._iconLayer.remove_clip();this._scrim.opacity=0;this._scrim.reactive=false;
+        this._close.opacity=0;this._close.reactive=false;this._close.can_focus=false;
+        this._previous.hide();this._next.hide();this._clearHover();
+        this._adjustment.upper=this._pageCount;this._adjustment.value=this.page;
+        this._layoutKey='';this.queue_relayout();
     }
 
     _beginMorph(group) {
         this._morphGroup=group;this._morphFolderPage=this.folderPage;
         this._previous.hide();this._next.hide();
+        this._raiseGroup(group);
+        this._morphing=true;this.bms?.refresh();this.add_style_class_name("app-library-morphing");
+        group.card.add_style_class_name("app-library-morph-card");
+        this._clearHover();
+        this._morphing=true;this._morphSerial=(this._morphSerial??0)+1;
+        this._adjustment.remove_transition('value');this._hover.opacity=0;
+    }
+    _raiseGroup(group){
         // Keep the actual card above background apps, without moving any app actor.
         for(const actor of [group.card,group.label]){
             if(actor.get_parent()!==this._iconLayer){actor.get_parent().remove_child(actor);this._iconLayer.add_child(actor);}
@@ -358,11 +395,6 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         }
         for(const icon of group.apps){icon.remove_clip();this._iconLayer.set_child_above_sibling(icon,null);}
         if(group===this.expanded)for(const icon of group.apps.slice(0,7))this._iconLayer.set_child_above_sibling(icon,null);
-        this._morphing=true;this.bms?.refresh();this.add_style_class_name("app-library-morphing");
-        group.card.add_style_class_name("app-library-morph-card");
-        this._clearHover();
-        this._morphing=true;this._morphSerial=(this._morphSerial??0)+1;
-        this._adjustment.remove_transition('value');this._hover.opacity=0;
     }
     _finishMorph(callback) {
         const serial=this._morphSerial;
@@ -383,10 +415,15 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         },DURATION+24);
     }
     _restoreCardLayer(){
-        for(const actor of [this._morphGroup?.card,this._morphGroup?.label])
-            if(actor&&actor.get_parent()!==this._cards){actor.get_parent().remove_child(actor);this._cards.add_child(actor);}
-        this._morphGroup?.bms?.restack();
+        const group=this._morphGroup;
+        if(!group||!this.groups.includes(group))return;
+        for(const actor of [group.card,group.label]){
+            const parent=actor.get_parent();
+            if(parent&&parent!==this._cards){parent.remove_child(actor);this._cards.add_child(actor);}
+        }
+        group.bms?.restack();
     }
+
     _setPageClip() {
         this._iconLayer.remove_clip();
         if(!this.expanded||!this._panel||this._morphing)return;
@@ -498,7 +535,6 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             for(const child of this.get_children())reallocate(child);
             this.bms?.allocate();return;
         }
-        allocate(this.controls.button,w-136,8,112,40);
         this.controls.button.visible=!this.expanded&&!this._morphing;
         this._rootWidth=home.width;this._rootHeight=h;
         allocate(this._cards,0,0,w,h);allocate(this._iconLayer,0,0,w,h);allocate(this._scrim,0,0,w,h);
@@ -515,10 +551,10 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const count=this.expanded?this._folderPages:this._pageCount;
         this._adjustment.upper=count;
         this._indicators.setNPages(count);
-        const indicatorY=this.expanded?panel.y+panelHeight-40:h-32;
+        const indicatorY=this.expanded?panel.y+panelHeight-48:h-32;
         const [,indicatorWidth]=this._indicators.get_preferred_width(-1);
         allocate(this._indicators,(w-indicatorWidth)/2,indicatorY,indicatorWidth,32);
-        allocate(this._previous,this.expanded?panel.x+8:8,h/2-20,40,40);allocate(this._next,this.expanded?panel.x+panelWidth-48:w-48,h/2-20,40,40);
+        allocate(this._previous,this.expanded?panel.x+8:24,h/2-20,40,40);allocate(this._next,this.expanded?panel.x+panelWidth-48:w-64,h/2-20,40,40);
         allocate(this._close,panel.x+panelWidth-52,panel.y+16,36,36);
         allocate(this._title,panel.x+64,panel.y+22,panelWidth-128,36);
         this._title.text='';
@@ -531,6 +567,11 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         const changed=key!==this._layoutKey;this._layoutKey=key;
         const x0=home.x+(home.width-layout.columns*240+32)/2;
         const y0=home.y+Math.round(Math.max(8,(home.height-40-layout.rows*256)/2));
+        const visibleCards=this.groups.slice(this.page*layout.capacity,(this.page+1)*layout.capacity).map((_g,i)=>({
+            x:x0+(i%layout.columns)*240,y:y0+Math.floor(i/layout.columns)*256,width:208,height:208}));
+        const sort=sortButtonLayout(w,visibleCards);
+        this.controls.setCompact(sort.compact);
+        allocate(this.controls.button,sort.x,sort.y,sort.width,sort.height);
         this.groups.forEach((group,index)=>{
             if(group._dragging){group.page=Math.floor(index/layout.capacity);return;}
             if(this._morphing&&group!==this._morphGroup){
@@ -669,7 +710,7 @@ export default class AppLibraryExtension extends Extension {
         this._nativeBox.hide();
         this.library=new Library(this.getSettings());
         this._display.add_child(this.library);
-        this._hiddenId=Main.overview.connect('hidden',()=>this.library.close(false));
+        this._hiddenId=Main.overview.connect('hiding',()=>this.library.close(false));
     }
     disable() {
         if(this._hiddenId)Main.overview.disconnect(this._hiddenId);

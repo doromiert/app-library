@@ -9,14 +9,19 @@ export const SORT_MODES=[['alphabetical','Alphabetical'],['added','Recently adde
 export class LibraryControls {
  constructor(library,settings){
   this.library=library;this.settings=settings;
-  const content=new St.BoxLayout({style_class:'app-library-sort-content'});
+  const content=new St.BoxLayout({style_class:'app-library-sort-content',x_align:Clutter.ActorAlign.CENTER,y_align:Clutter.ActorAlign.CENTER});
   content.add_child(new St.Icon({icon_name:'view-sort-descending-symbolic',icon_size:20}));
-  content.add_child(new St.Label({text:'Sort',y_align:Clutter.ActorAlign.CENTER}));
+  this.label=new St.Label({text:'Sort',y_align:Clutter.ActorAlign.CENTER});
+  content.add_child(this.label);
   this.button=new St.Button({style_class:'button app-library-sort',can_focus:true,accessible_name:'Sort and App Library options',child:content});
   this.menu=new PopupMenu.PopupMenu(this.button,0.5,St.Side.TOP);
   Main.uiGroup.add_child(this.menu.actor);this.menu.actor.hide();
   this.manager=new PopupMenu.PopupMenuManager(this.button);this.manager.addMenu(this.menu);
   this.button.connect('clicked',()=>{this.rebuild();this.menu.toggle();});
+ }
+ setCompact(compact){
+  if(this.compact===compact)return;
+  this.compact=compact;this.label.visible=!compact;
  }
  rebuild(){
   this.menu.removeAll();

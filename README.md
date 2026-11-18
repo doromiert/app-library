@@ -106,3 +106,11 @@ ZenPkgs provides `byCategories.desktops.gnome.extensions.app-library`. Enable
 `desktops.gnome.extensions.app-library.enable = true` in a ZenOS host. Disable
 Alphabetical App Grid when using App Library. Sorting and history remain
 per-user settings in the library's Sort menu. Requires GNOME Shell 50.
+
+Category reassignment settles any active morph before rebuilding categories.
+Removing the last app from an expanded category returns the library to the
+overview; overview exit also performs unconditional presentation cleanup.
+`tests/lifecycle.js` checks those cases, interrupted animations and foreground
+ordering. Folder page dots have 8px more bottom clearance. Sort collapses to
+an icon when its label would leave less than 12px clearance to a category card;
+the collapsed control and main-grid arrows share 24px side padding.
