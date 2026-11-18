@@ -1,0 +1,17 @@
+<schemalist>
+  <schema id="org.gnome.shell.extensions.app-library" path="/org/gnome/shell/extensions/app-library/">
+    <key name="category-overrides" type="a{ss}">
+      <default>{}</default>
+      <summary>Per-application category overrides</summary>
+      <description>Maps desktop entry IDs to XDG main category IDs or Other. Desktop entry files are never modified.</description>
+    </key>
+    <key name="sort-mode" type="s"><default>'alphabetical'</default><summary>Grid sort mode</summary></key>
+    <key name="custom-categories" type="a{ss}"><default>{}</default><summary>User categories</summary></key>
+    <key name="custom-order" type="a{sas}"><default>{}</default><summary>App order within categories</summary></key>
+    <key name="category-order" type="as"><default>[]</default><summary>Custom category order</summary></key>
+    <key name="show-recents" type="b"><default>true</default><summary>Show Recents category</summary></key>
+    <key name="recently-used" type="a{sx}"><default>{}</default><summary>Most recent app use timestamps</summary></key>
+    <key name="first-seen" type="a{sx}"><default>{}</default><summary>First observed installation timestamps</summary></key>
+    <key name="pin-recents" type="b"><default>true</default><summary>Keep Recents first</summary></key>
+  </schema>
+</schemalist>

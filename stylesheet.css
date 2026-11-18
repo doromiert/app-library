@@ -1,0 +1,75 @@
+.app-library { spacing: 0; }
+.app-library-card {
+    background-color: rgba(255, 255, 255, 0.09);
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.app-library-card:hover { background-color: rgba(255, 255, 255, 0.14); }
+.app-library-category-label { text-align: center; }
+.app-library-card.app-library-expanded {
+    background-color: #36363a;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 36px;
+    box-shadow: 0 16px 36px 0 rgba(0,0,0,0.28);
+}
+.app-library-dialog-title { font-size: 20pt; font-weight: 700; text-align: center; }
+.app-library-scrim { background-color: rgba(0,0,0,0.28); }
+.app-library-close { padding: 8px; border-radius: 99px; }
+.app-library-app { padding: 8px; border-radius: 16px; }
+.app-library-app .overview-icon { spacing: 6px; }
+.app-library-app .overview-icon StLabel { text-align: center; }
+.app-library-app:focus { box-shadow: inset 0 0 0 2px -st-accent-color; }
+.app-library-category-label:focus { color: -st-accent-color; }
+.app-library-card:focus { border-color: -st-accent-color; }
+.app-library-page-arrow { padding: 0; border-radius: 20px; min-width: 40px; min-height: 40px; }
+
+.app-library-preview-hover { background-color: rgba(255,255,255,0.12); border-radius: 16px; }
+.app-library-collapsed-app:hover, .app-library-collapsed-app:focus { background-color: transparent; box-shadow: none; }
+.app-library-cluster { background-color: transparent; padding: 0; border-radius: 16px; }
+.app-library-cluster:hover, .app-library-cluster:focus { background-color: rgba(255,255,255,0.12); }
+
+.app-library-collapsed-app { background-color: transparent; box-shadow: none; border-color: transparent; }
+
+/* Inactive off-page tiles must not acquire the theme's insensitive fill. */
+.app-library-app:insensitive { background-color: transparent; box-shadow: none; }
+.app-library-paging .app-library-app { background-color: transparent; box-shadow: none; }
+.app-library-paging .app-library-preview-hover { background-color: transparent; }
+
+/* Card radius28 minus12px highlight inset gives a concentric16px radius. */
+.app-library-morph-card, .app-library-card.app-library-morph-card:hover {
+    background-color: #36363a;
+    transition-duration: 0ms;
+}
+.app-library-morphing .app-library-cluster,
+.app-library-morphing .app-library-cluster:hover,
+.app-library-morphing .app-library-cluster:focus,
+.app-library-morphing .app-library-app,
+.app-library-morphing .app-library-preview-hover {
+    background-color: transparent;
+    box-shadow: none;
+    transition-duration: 0ms;
+}
+
+.app-library-card, .app-library-card:focus { border-color: transparent; box-shadow: none; }
+.app-library-app:focus { border-radius: 20px; box-shadow: inset 0 0 0 2px st-transparentize(-st-accent-color,0.25); }
+.app-library-collapsed-app:focus { box-shadow: none; }
+.app-library-new-category .modal-dialog-content-box { spacing: 18px; min-width: 320px; }
+.app-library-entry-error { color: #ff7b63; }
+.app-library-drag-label { padding: 12px; border-radius: 12px; background-color: #36363a; }
+.app-library-sort { padding: 8px; border-radius: 20px; }
+
+.app-library-sort-content { spacing: 8px; }
+
+.app-library-expanded-title { font-size: 20pt; font-weight: 700; }
+
+.app-library .app-library-collapsed-app,
+.app-library .app-library-collapsed-app:hover,
+.app-library .app-library-collapsed-app:focus,
+.app-library .app-library-collapsed-app:active,
+.app-library .app-library-collapsed-app:selected,
+.app-library .app-library-collapsed-app:checked,
+.app-library .app-library-collapsed-app .overview-icon {
+    background-color: transparent !important;
+    box-shadow: none !important;
+    transition-duration: 0ms;
+}

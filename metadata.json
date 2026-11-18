@@ -1,0 +1,11 @@
+{
+  "uuid": "app-library@neg-zero.com",
+  "name": "App Library",
+  "description": "A paginated, categorized app library with continuous icon transitions.",
+  "shell-version": [
+    "50"
+  ],
+  "settings-schema": "org.gnome.shell.extensions.app-library",
+  "version": 1,
+  "url": "https://github.com/doromiert/app-library"
+}

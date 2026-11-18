@@ -1,0 +1,7 @@
+- [ ] MDK first interactive preview: cards, Adwaita expansion, native pagination.
+- [ ] Prove actor and icon identity through expansion, collapse, page changes.
+- [ ] Verify right-click moves persist and automatic category reset works.
+- [ ] Keyboard, touch/trackpad swipes, reduced motion, large text, resize.
+- [ ] Measure cold feedback and main-loop gaps against 400 ms.
+- [ ] Disable/re-enable restores stock grid; Dash Stacks compatibility.
+- [ ] Package the verified extension in upstream ZenPkgs.
