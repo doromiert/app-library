@@ -439,6 +439,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             }
             if(!this.expanded)this._restoreCardLayer();
             this._positionPages();this.bms?.refresh();
+            this._clearHover();
         },DURATION+24);
     }
     _restoreCardLayer(){
@@ -485,6 +486,10 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             ? [Main.layoutManager.primaryMonitor.x,Main.layoutManager.primaryMonitor.y]
             : this._homeOrigin;
         for(const actor of [...this._cards.get_children(),...this._iconLayer.get_children()]){
+            // These controls use absolute allocations with the home offset already applied.
+            if(actor===this.controls.button||actor===this._previous||actor===this._next){
+                actor.translation_x=0;actor.translation_y=0;continue;
+            }
             if(actor._zenosBmsSurface||actor===this._scrim)continue;
             actor.remove_all_transitions();actor.translation_x+=oldX-newX;actor.translation_y+=oldY-newY;
         }
@@ -497,7 +502,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
 
     _syncCategoryHover(){
         for(const group of this.groups){
-            const hover=!this.expanded&&!this._morphing&&!this._isPaging&&
+            const hover=!this._clearingHover&&!this.expanded&&!this._morphing&&!this._isPaging&&
                 (group.card.hover||group.cluster.hover||group.apps.some(app=>app.hover));
             if(hover)group.card.add_style_class_name('app-library-has-hover');
             else group.card.remove_style_class_name('app-library-has-hover');
@@ -505,9 +510,11 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     }
 
     _clearHover() {
+        this._clearingHover=true;
         this._hoverTarget=null;this._hover.remove_all_transitions();this._hover.opacity=0;
         for(const icon of this.icons.values())icon.set_hover(false);
         for(const group of this.groups){group.card.set_hover(false);group.cluster.set_hover(false);group.card.remove_style_class_name('app-library-has-hover');}
+        this._clearingHover=false;
     }
     _startPaging() {
         this._isPaging=true;this._clearHover();this.add_style_class_name('app-library-paging');
