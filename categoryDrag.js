@@ -12,6 +12,7 @@ export class CategoryDrag {
   DND.addDragMonitor(this.monitor);
  }
  preview(group){
+  if(this.library.expanded||this.library._morphing)return null;
   this.finish(false);
   this.state={group,order:this.library.groups.map(g=>g.id)};group._dragging=true;
   const preview=new St.Widget({layout_manager:new Clutter.FixedLayout(),width:208,height:246});

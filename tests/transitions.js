@@ -14,7 +14,8 @@ export async function run(library){
   assert(education.apps.slice(16).every(a=>a.opacity===0),'off-page icons visible during expansion');
   education.card.ensure_style();
   assert(education.card.opacity===255&&education.card.get_theme_node().get_background_color().alpha>0,'translucent opening panel');
-  assert(education.apps.slice(0,16).every(a=>a.opacity===255),'translucent opening artwork');
+  assert(education.apps.slice(0,7).every(a=>a.opacity===255),'persistent preview artwork faded');
+  assert(education.apps.slice(7,16).some(a=>a.opacity>0&&a.opacity<255),'extra opening apps did not fade in');
   await delay(280);education.cluster.set_hover(true);library.close();await delay(70);
   assert(!education.cluster.visible&&library._hover.opacity===0,'collapse retained miniature highlight');
   assert(education.apps[0].icon.label.opacity>0&&education.apps[0].icon.label.opacity<255,'closing labels did not fade');

@@ -56,7 +56,17 @@ export default class Setup extends Extension {
             if(previous)GLib.timeout_add_once(GLib.PRIORITY_DEFAULT,100,()=>{
                 const group=library.groups.find(g=>g.id===previous);if(group)library.open(group);
             });
-        } else if(req.op==='open')library.open(library.groups.find(g=>g.id===req.category)??library.groups[0]);
+        } else if(req.op==='test'){
+            try{
+                const test=await import(req.module+'?revision='+req.sequence);
+                const result=await test.run(library);
+                GLib.file_set_contents(this.root+'/test-result.json',JSON.stringify({sequence:req.sequence,pass:true,result}));
+            }catch(error){
+                GLib.file_set_contents(this.root+'/test-result.json',JSON.stringify({sequence:req.sequence,pass:false,error:String(error),stack:error.stack}));
+                throw error;
+            }
+        }
+        else if(req.op==='open')library.open(library.groups.find(g=>g.id===req.category)??library.groups[0]);
         else if(req.op==='close')library.close();
         else if(req.op==='page')library.goToPage(req.page);
         else if(req.op==='move')library.moveApp(req.appid,req.category??null);

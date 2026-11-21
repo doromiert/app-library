@@ -28,7 +28,7 @@ function allocate(actor, x, y, width, height) {
     actor.allocate(box);
 }
 function ease(actor, properties, animate) {
-    actor.ease({...properties, duration: animate ? DURATION : 0,
+    actor.ease({...properties, duration: animate ? (typeof animate==='number'?animate:DURATION) : 0,
         mode: Clutter.AnimationMode.EASE_OUT_CUBIC});
 }
 
@@ -130,6 +130,10 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._indicators=new PageIndicators.PageIndicators(Clutter.Orientation.HORIZONTAL);
         this._indicators.connect('page-activated',(_i,page)=>this.goToPage(page));
         this.add_child(this._indicators);
+        this._folderIndicators=new PageIndicators.PageIndicators(Clutter.Orientation.HORIZONTAL);
+        this._folderIndicators.opacity=0;
+        this._folderIndicators.connect('page-activated',(_i,page)=>this.goToPage(page));
+        this.add_child(this._folderIndicators);
         this._previous=this._arrow('go-previous-symbolic',-1);
         this._next=this._arrow('go-next-symbolic',1);
         this._folderPrevious=this._arrow('go-previous-symbolic',-1);
@@ -152,9 +156,11 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             const type=event.type();
             // Search/the overview can own focus outside our actor hierarchy.
             // Consume Escape at the stage before their handlers leave Show Apps.
-            if(type===Clutter.EventType.KEY_PRESS&&event.get_key_symbol()===Clutter.KEY_Escape&&this.expanded){
+            if(type===Clutter.EventType.KEY_PRESS&&event.get_key_symbol()===Clutter.KEY_Escape&&(this.expanded||this._morphing)){
                 this.close();return Clutter.EVENT_STOP;
             }
+            if(type===Clutter.EventType.KEY_PRESS&&this.expanded&&this._key(event)===Clutter.EVENT_STOP)
+                return Clutter.EVENT_STOP;
             if([Clutter.EventType.MOTION,Clutter.EventType.ENTER,Clutter.EventType.LEAVE].includes(type))
                 this._pointerHover(...event.get_coords());
             else if(type===Clutter.EventType.TOUCH_BEGIN)this._clearHover();
@@ -375,7 +381,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
 
     open(group) {
         if(this._disposed||!this.groups.includes(group)||this.expanded===group)return;
-        this._beginMorph(group);
+        this._beginMorph(group,true);
         this._iconLayer.remove_clip();
         this._lift(true);
         this.expanded=group;this.folderPage=0;
@@ -386,7 +392,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
 
     close(animate=true) {
         if(!animate){this._resetPresentation();return;}
-        if(!this.expanded){if(this._lifted)this._resetPresentation();return;}
+        if(!this.expanded){if(this._lifted&&!this._morphing)this._resetPresentation();return;}
         this._beginMorph(this.expanded);
         this._iconLayer.remove_clip();
         this.expanded=null;global.stage.set_key_focus(null);
@@ -407,17 +413,42 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._morphing=false;this._isPaging=false;this._animate=false;
         this.remove_style_class_name('app-library-morphing');this.remove_style_class_name('app-library-paging');
         if(this.groups.includes(this._morphGroup))this._morphGroup.card.remove_style_class_name('app-library-morph-card');
-        this._restoreCardLayer();
+        this._restoreCardLayer(true);
         this.expanded=null;this._morphGroup=null;
         if(this._lifted)this._lift(false);
         this._iconLayer.remove_clip();this._scrim.opacity=0;this._scrim.reactive=false;
         this._close.opacity=0;this._close.reactive=false;this._close.can_focus=false;
+        this._folderIndicators.opacity=0;this._folderIndicators.reactive=false;
+        this._morphCompletion=null;this._morphFinishId=0;this._morphDuration=0;this._morphGroups?.clear();
         this._folderPrevious.hide();this._folderNext.hide();this._clearHover();
         this._adjustment.upper=this._pageCount;this._adjustment.value=this.page;
-        this._layoutKey='';this.queue_relayout();
+        this._syncFolderDrag();this._layoutKey='';this.queue_relayout();
     }
 
-    _beginMorph(group) {
+    _syncFolderDrag(){
+        const blocked=Boolean(this.expanded||this._morphing);
+        for(const group of this.groups)if(group.draggable)group.draggable.startGesture.enabled=!blocked;
+    }
+
+    _beginMorph(group,opening=false) {
+        if(this._morphFinishId){GLib.source_remove(this._morphFinishId);this._sources.delete(this._morphFinishId);this._morphFinishId=0;}
+        // Freeze the current presentation at input time, before the next layout.
+        // Otherwise the previous direction keeps advancing until allocation.
+        for(const actor of [group.card,group.label,...group.apps,this._close,this._folderIndicators,this._scrim])
+            actor.remove_all_transitions();
+        for(const icon of group.apps)for(const actor of [icon.icon.icon,icon.icon.label,icon._dot])actor.remove_all_transitions();
+        const size=208;
+        const progress=Math.max(0,Math.min(1,(group.card.width-size)/Math.max(1,(this._panel?.width??720)-size)));
+        this._morphDuration=this._morphing?Math.max(80,Math.round(DURATION*(opening?1-progress:progress))):DURATION;
+        this._morphGroups??=new Set();this._morphGroups.add(group);
+        if(!group._folderControlsConnected){
+            group._folderControlsConnected=true;
+            for(const property of ['translation-x','translation-y','width','height'])
+                group.card.connect(`notify::${property}`,()=>{
+                    if(group===(this.expanded??this._morphGroup))this._syncFolderControls();
+                });
+        }
+        group._morphFolderPage=this.folderPage;
         this._morphGroup=group;this._morphFolderPage=this.folderPage;
         this._folderPrevious.hide();this._folderNext.hide();
         this._raiseGroup(group);
@@ -426,6 +457,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this._clearHover();
         this._morphing=true;this._morphSerial=(this._morphSerial??0)+1;
         this._adjustment.remove_transition('value');this._hover.opacity=0;
+        this._syncFolderDrag();
     }
     _raiseGroup(group){
         this._iconLayer.set_child_above_sibling(this._scrim,null);
@@ -437,33 +469,51 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         for(const icon of group.apps){icon.remove_clip();this._iconLayer.set_child_above_sibling(icon,null);}
         if(group===this.expanded)for(const icon of group.apps.slice(0,7))this._iconLayer.set_child_above_sibling(icon,null);
     }
-    _finishMorph(callback) {
+    _finishMorph(callback) { this._morphCompletion=callback; }
+    _scheduleMorphFinish() {
         const serial=this._morphSerial;
-        this._later(()=>{
+        this._morphFinishId=this._later(()=>{
+            this._morphFinishId=0;
             if(serial!==this._morphSerial)return;
-            this._morphing=false;callback();this._setPageClip();
-            this.remove_style_class_name("app-library-morphing");
-            this._morphGroup?.card.remove_style_class_name("app-library-morph-card");
-            for(const group of this.groups)group.cluster.visible=!this.expanded&&!this._morphing&&group.apps.length>4;
-            for(const icon of this.icons.values()){
-                icon._libraryVisible=icon.group===this.expanded||previewPosition(icon.previewIndex,icon.group.apps.length).visible;
-                icon.opacity=icon._libraryVisible?255:0;
-                icon.icon.label.opacity=this.expanded&&icon.group===this.expanded?255:0;
-                icon._morphSuppressed=false;
+            this._morphing=false;
+            this._syncFolderDrag();
+            const callback=this._morphCompletion;this._morphCompletion=null;callback?.();
+            this._setPageClip();this.remove_style_class_name('app-library-morphing');
+            for(const group of this._morphGroups??[])group.card.remove_style_class_name('app-library-morph-card');
+            for(const group of this.groups){
+                group.cluster.visible=!this.expanded&&group.apps.length>4;
+                for(const icon of group.apps){
+                    const preview=previewPosition(icon.previewIndex,group.apps.length);
+                    icon._libraryVisible=group===this.expanded||preview.visible;
+                    icon.opacity=icon._libraryVisible?255:0;
+                    icon.icon.label.opacity=this.expanded&&group===this.expanded?255:0;
+                    icon._morphSuppressed=false;
+                }
             }
-            if(!this.expanded)this._restoreCardLayer();
-            this._positionPages();this.bms?.refresh();
-            this._clearHover();
-        },DURATION+24);
+            this._restoreCardLayer();this._morphGroups?.clear();
+            this._positionPages();this._syncFolderControls();this.bms?.refresh();this._clearHover();
+            this._layoutKey='';this.queue_relayout();
+            if(!this.expanded)this._later(()=>this._pointerHover(...global.get_pointer().slice(0,2)),32);
+        },this._morphDuration+24);
     }
-    _restoreCardLayer(){
-        const group=this._morphGroup;
-        if(!group||!this.groups.includes(group))return;
-        for(const actor of [group.card,group.label]){
-            const parent=actor.get_parent();
-            if(parent&&parent!==this._cards){parent.remove_child(actor);this._cards.add_child(actor);}
+    _syncFolderControls(){
+        const group=this.expanded??this._morphGroup;
+        if(!group||!this._folderIndicators)return;
+        const card=group.card;
+        this._close.translation_x=card.translation_x+card.width-52;
+        this._close.translation_y=card.translation_y+16;
+        this._folderIndicators.translation_x=card.translation_x+(card.width-this._folderIndicators.width)/2-this._folderIndicators.x;
+        this._folderIndicators.translation_y=card.translation_y+card.height-48-this._folderIndicators.y;
+    }
+    _restoreCardLayer(force=false){
+        for(const group of this._morphGroups??[this._morphGroup]){
+            if(!group||!this.groups.includes(group)||!force&&group===this.expanded)continue;
+            for(const actor of [group.card,group.label]){
+                const parent=actor.get_parent();
+                if(parent&&parent!==this._cards){parent.remove_child(actor);this._cards.add_child(actor);}
+            }
+            group.bms?.restack();
         }
-        group.bms?.restack();
     }
 
     _setPageClip() {
@@ -511,7 +561,7 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
 
     _later(callback,ms) {
         const id=GLib.timeout_add(GLib.PRIORITY_DEFAULT,ms,()=>{this._sources.delete(id);if(!this._disposed)callback();return GLib.SOURCE_REMOVE;});
-        this._sources.add(id);
+        this._sources.add(id);return id;
     }
 
     _pointerHover(x,y){
@@ -619,7 +669,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             this.bms?.allocate();return;
         }
         this.controls.button.visible=true;
-        this.controls.button.reactive=!this.expanded&&!this._morphing;this.controls.button.can_focus=this.controls.button.reactive;
+        // The scrim blocks pointer input; keep the underlying control visually enabled.
+        this.controls.button.reactive=true;this.controls.button.can_focus=!this.expanded&&!this._morphing;
+        if(this.expanded)this.controls.menu.close();
         this._rootWidth=home.width;this._rootHeight=h;
         allocate(this._cards,0,0,w,h);allocate(this._iconLayer,0,0,w,h);allocate(this._scrim,0,0,w,h);
         const layout=pageLayout(home.width,home.height);
@@ -632,21 +684,27 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         this.page=Math.min(this.page,this._pageCount-1);this.folderPage=Math.min(this.folderPage,this._folderPages-1);
         const count=this.expanded?this._folderPages:this._pageCount;
         this._adjustment.upper=count;
-        this._indicators.setNPages(count);
-        const indicatorY=this.expanded?panel.y+panelHeight-48:h-32;
+        this._indicators.setNPages(this._pageCount);
         const [,indicatorWidth]=this._indicators.get_preferred_width(-1);
-        allocate(this._indicators,(w-indicatorWidth)/2,indicatorY,indicatorWidth,32);
+        allocate(this._indicators,home.x+(home.width-indicatorWidth)/2,home.y+home.height-32,indicatorWidth,32);
+        this._folderIndicators.setNPages(this.expanded?this._folderPages:Math.max(1,Math.ceil((this._morphGroup?.apps.length??0)/capacity)));
+        const [,folderIndicatorWidth]=this._folderIndicators.get_preferred_width(-1);
+        allocate(this._folderIndicators,0,0,folderIndicatorWidth,32);
+        this._folderIndicators.reactive=Boolean(this.expanded)&&!this._morphing;
+        const motion=this._animate?(this._morphDuration||DURATION):false;
+        ease(this._folderIndicators,{opacity:this.expanded?255:0},motion);
+        this._indicators.opacity=this.expanded||this._morphing?0:255;
         allocate(this._previous,home.x+24,home.y+home.height/2-20,40,40);
         allocate(this._next,home.x+home.width-64,home.y+home.height/2-20,40,40);
         allocate(this._folderPrevious,panel.x+24,h/2-20,40,40);
         allocate(this._folderNext,panel.x+panelWidth-64,h/2-20,40,40);
-        allocate(this._close,panel.x+panelWidth-52,panel.y+16,36,36);
+        allocate(this._close,0,0,36,36);
         allocate(this._title,panel.x+64,panel.y+22,panelWidth-128,36);
         this._title.text='';
         this._close.reactive=Boolean(this.expanded);this._close.can_focus=Boolean(this.expanded);
-        ease(this._close,{opacity:this.expanded?255:0},this._animate);
+        ease(this._close,{opacity:this.expanded?255:0},motion);
         this._title.opacity=0;
-        ease(this._scrim,{opacity:this.expanded?255:0},this._animate);
+        ease(this._scrim,{opacity:this.expanded?255:0},motion);
         this._scrim.reactive=Boolean(this.expanded);
         const key=`${w}:${h}:${this.expanded?.id}:${layout.capacity}:${this.groups.length}`;
         const changed=key!==this._layoutKey;this._layoutKey=key;
@@ -659,15 +717,15 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
         allocate(this.controls.button,home.x+sort.x,home.y+sort.y,sort.width,sort.height);
         this.groups.forEach((group,index)=>{
             if(group._dragging){group.page=Math.floor(index/layout.capacity);return;}
-            if(this._morphing&&group!==this._morphGroup){
+            if(this._morphing&&!this._morphGroups?.has(group)){
                 allocate(group.card,0,0,group.card.width,group.card.height);
                 allocate(group.label,0,0,224,28);allocate(group.cluster,0,0,88,88);
                 const opacity=255;
-                if(changed){ease(group.card,{opacity},this._animate);ease(group.label,{opacity},this._animate);}
+                if(changed){ease(group.card,{opacity},motion);ease(group.label,{opacity},motion);}
                 group.card.reactive=false;group.cluster.reactive=false;
                 for(const icon of group.apps){
                     allocate(icon,0,0,TILE,TILE);icon.reactive=false;
-                    if(changed)ease(icon,{opacity:previewPosition(icon.previewIndex,group.apps.length).visible?255:0},this._animate);
+                    if(changed)ease(icon,{opacity:previewPosition(icon.previewIndex,group.apps.length).visible?255:0},motion);
                 }
                 return;
             }
@@ -685,9 +743,9 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             if(changed){
                 ease(group.card,{translation_x:selected?panel.x:group.x+(group.page-this.page)*home.width,
                     translation_y:selected?panel.y:group.y,scale_x:1,
-                    scale_y:1,width:selected?panelWidth:208,height:selected?panelHeight:208,opacity:255},this._animate);
-                ease(group.label,{translation_x:selected?panel.x+panelWidth/2-112:group.x-8+(group.page-this.page)*home.width,translation_y:selected?panel.y+22:group.y+218,
-                    opacity:255},this._animate);
+                    scale_y:1,width:selected?panelWidth:208,height:selected?panelHeight:208,opacity:255},motion);
+                ease(group.label,{translation_x:selected?panel.x+panelWidth/2-112:group.x-8+(group.page-this.page)*home.width,translation_y:selected?panel.y+22:group.y+208+10,
+                    opacity:255},motion);
             }
             allocate(group.cluster,0,0,88,88);
             group.cluster.translation_x=group.x+108+(group.page-this.page)*home.width;group.cluster.translation_y=group.y+108;
@@ -710,19 +768,22 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
                 icon.can_focus=icon.reactive;
                 if(selected){icon.remove_clip();icon.remove_style_class_name('app-library-collapsed-app');if(changed)icon.style=null;}
                 else{icon.set_clip(19,7,88,88);icon.add_style_class_name('app-library-collapsed-app');if(changed)icon.style='background-color: transparent; box-shadow: none;';}
-                const morphPage=this.expanded?this.folderPage:this._morphFolderPage;
-                const suppress=this._morphing&&group===this._morphGroup&&page!==morphPage;
-                if(suppress){icon.opacity=0;icon._morphSuppressed=true;}
+                const morphPage=selected?this.folderPage:group._morphFolderPage;
+                const morphing=this._morphing&&this._morphGroups?.has(group);
+                const suppress=morphing&&page!==morphPage;
                 if(changed){
-                    if(this._morphing)icon.opacity=suppress?0:255;
+                    // Only apps absent from the collapsed preview fade. The seven
+                    // persistent preview icons keep their current opaque artwork.
+                    const opacity=suppress?0:selected||preview.visible?255:0;
+                    if(suppress){icon.remove_transition('opacity');icon.opacity=0;}
+                    else ease(icon,{opacity},motion);
                     ease(icon,{translation_x:icon._libraryX+(icon._libraryPage-(selected?this.folderPage:this.page))*icon._libraryStride,
                         translation_y:icon._libraryY,scale_x:scale,scale_y:scale,
-                        },this._animate);
-                    if(!this._morphing)icon.opacity=icon._libraryVisible?255:0;
+                        },motion);
                     const artworkScale=!selected&&preview.size===80?0.9:1;
-                    ease(icon.icon.icon,{scale_x:artworkScale,scale_y:artworkScale},this._animate);
-                    ease(icon.icon.label,{opacity:selected?255:0},this._animate);
-                    ease(icon._dot,{opacity:selected?255:0},this._animate);
+                    ease(icon.icon.icon,{scale_x:artworkScale,scale_y:artworkScale},motion);
+                    ease(icon.icon.label,{opacity:selected?255:0},motion);
+                    ease(icon._dot,{opacity:selected?255:0},motion);
                 }
             });
         });
@@ -735,6 +796,8 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
             this._hover.translation_x=hover.translation_x+19*scale;
             this._hover.translation_y=hover.translation_y+7*scale;
         }else allocate(this._hover,0,0,1,1);
+        this._syncFolderControls();
+        if(this._animate&&this._morphing)this._scheduleMorphFinish();
         this._animate=false;
         if(changed && !this._morphing)
             this._positionPages();
@@ -744,7 +807,8 @@ export const Library = GObject.registerClass({GTypeName:`AppLibrarySurface${TYPE
     _positionPages() {
         if(!this._panel||this._morphing)return;
         const progress=this._adjustment.value;
-        this._indicators.setCurrentPosition(progress);
+        this._indicators.setCurrentPosition(this.expanded?this.page:progress);
+        this._folderIndicators.setCurrentPosition(this.expanded?progress:0);
         const count=this.expanded?this._folderPages:this._pageCount;
         const gridProgress=this.expanded?this.page:progress;
         this._previous.visible=this._pageCount>1&&gridProgress>0.01;

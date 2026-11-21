@@ -22,7 +22,7 @@ export async function run(library){
   await key(Clutter.KEY_Right);assert(global.stage.get_key_focus()===group.apps[1],'right arrow did not move selection');
   await key(Clutter.KEY_Down);assert(global.stage.get_key_focus()===group.apps[1+library._folderColumns],'down arrow did not move selection');
   const children=library._iconLayer.get_children(),scrim=children.indexOf(library._scrim);
-  assert(library.controls.button.visible&&children.indexOf(library.controls.button)<scrim&&!library.controls.button.reactive,'Sort not retained beneath dim overlay');
+  assert(library.controls.button.visible&&children.indexOf(library.controls.button)<scrim&&library.controls.button.reactive,'Sort not retained beneath dim overlay');
   assert(children.indexOf(library._next)<scrim&&children.indexOf(library._previous)<scrim,'grid arrows not beneath overlay');
   assert(Math.abs(library._folderNext.get_allocation_box().x2-(library._panel.x+library._panel.width-24))<1,'folder arrow inset differs from Sort');
   // Close with the physical pointer outside every category.

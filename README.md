@@ -128,3 +128,8 @@ Folder arrows use the same 24px side inset as Sort. Opening a folder focuses
 the container without selecting an app; the first navigation key selects an
 icon, with arrow keys and Tab moving focus afterward. Dropping onto a category's
 background or label changes membership, not only dropping onto another app.
+
+Folder controls follow the card throughout reversible open/close animations.
+Only apps absent from the collapsed preview fade. Expanded folders cannot be
+dragged; Tab or arrow keys enter app selection, with bright hover feedback.
+Sort keeps its normal appearance beneath the folder overlay.

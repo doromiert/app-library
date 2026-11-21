@@ -3,15 +3,17 @@
 import argparse,ast,configparser,json,os,shutil,subprocess,time
 from pathlib import Path
 source=Path(__file__).resolve().parent.parent
-root=Path.home()/'.private/State/app-library/devkit'
-parser=argparse.ArgumentParser();parser.add_argument('operation',choices=['launch','update','capture','open','close','page','identity']);parser.add_argument('value',nargs='?');args=parser.parse_args()
+root=Path(os.environ.get('APP_LIBRARY_PREVIEW_ROOT',str(Path.home()/'.private/State/app-library/devkit')))
+parser=argparse.ArgumentParser();parser.add_argument('operation',choices=['launch','update','capture','open','close','page','identity','test']);parser.add_argument('value',nargs='?');parser.add_argument('--headless',action='store_true');args=parser.parse_args()
 root.mkdir(parents=True,exist_ok=True)
 if args.operation!='launch':
     sequence=time.time_ns()
     request={'op':'reload' if args.operation=='update' else args.operation,'sequence':sequence}
     if args.operation=='update':
+        subprocess.run([str(next(Path('/nix/store').glob('*-glib-*-dev/bin/glib-compile-schemas'))),str(source/'schemas')],check=True)
         revision=time.time_ns()//1_000_000;dest=root/f'updates/{revision}';shutil.copytree(source,dest,ignore=shutil.ignore_patterns('.git','tools','tests'));request['revision']=revision
     if args.operation in ('open','identity'):request['category']=args.value
+    if args.operation=='test':request['module']=(source/'tests'/f'{args.value}.js').as_uri()
     if args.operation=='page':request['page']=int(args.value or 0)
     (root/'request.json').write_text(json.dumps(request));print('Preview request:',request);raise SystemExit
 (root/'request.json').unlink(missing_ok=True)
@@ -57,5 +59,5 @@ settings['favorites']=ast.literal_eval(subprocess.check_output(['gsettings','get
 env=os.environ.copy();real_runtime=env.get('XDG_RUNTIME_DIR','/run/user/1000')
 env.update({'HOME':str(root/'home'),'XDG_DATA_HOME':str(root/'data'),'XDG_CONFIG_HOME':str(root/'config'),'XDG_STATE_HOME':str(root/'state'),'XDG_CACHE_HOME':str(root/'cache'),'XDG_DATA_DIRS':':'.join([str(root/'system-data'),*providers]),'GSETTINGS_BACKEND':'memory','APP_LIBRARY_PREVIEW_ROOT':str(root),'WAYLAND_DISPLAY':str(Path(real_runtime)/env.get('WAYLAND_DISPLAY','wayland-0')),'XDG_RUNTIME_DIR':str(root/'runtime'),'PIPEWIRE_RUNTIME_DIR':real_runtime,'GTK_A11Y':'none','NO_AT_BRIDGE':'1','GIO_USE_VFS':'local'})
 with (root/'shell.log').open('w') as log:
-    process=subprocess.Popen(['dbus-run-session','--','gnome-shell','--devkit','--no-x11',f'--mode={mode}',f'--wayland-display=app-library-{os.getpid()}'],env=env,stdout=log,stderr=log,start_new_session=True)
+    process=subprocess.Popen(['dbus-run-session','--','gnome-shell',*(['--headless','--virtual-monitor=1920x1080'] if args.headless else ['--devkit']),'--no-x11',f'--mode={mode}',f'--wayland-display=app-library-{os.getpid()}'],env=env,stdout=log,stderr=log,start_new_session=True)
 (root/'launcher.json').write_text(json.dumps({'pid':process.pid,'root':str(root),'source':str(source)}));print('App Library MDK launched:',process.pid,'safe launchers:',count)

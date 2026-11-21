@@ -16,6 +16,11 @@
 .app-library-scrim { background-color: rgba(0,0,0,0.28); }
 .app-library-close { padding: 8px; border-radius: 99px; }
 .app-library-app { padding: 8px; border-radius: 16px; }
+.app-library-app:hover, .app-library-app:focus, .app-library-app:active {
+    background-color: rgba(255,255,255,0.12);
+}
+.app-library-app:hover .overview-icon, .app-library-app:focus .overview-icon,
+.app-library-app:active .overview-icon { background-color: transparent; }
 .app-library-app .overview-icon { spacing: 6px; }
 .app-library-app .overview-icon StLabel { text-align: center; }
 .app-library-app:focus { box-shadow: inset 0 0 0 2px -st-accent-color; }
